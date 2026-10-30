@@ -18,6 +18,7 @@
   - `lvdm/modules/attention.py` · `lvdm/models/autoencoder_dualref.py`: xformers `memory_efficient_attention` → torch `scaled_dot_product_attention`(xformers 없이 돈다). `(B*H, N, D)` 를 `(B, H, N, D)` 로 풀어 넣는다.
   - `lvdm/modules/encoders/condition.py`: 쓰지 않는 T5 · OpenAI CLIP 글 인코더의 `transformers` 를 그 클래스 안에서 불러온다(transformers 를 받지 않게).
   - `utils/utils.py`: 쓰지 않는 `resize_numpy_image` 의 `cv2` 를 그 함수 안에서 불러온다(opencv 를 받지 않게).
+  - `lvdm/models/autoencoder_dualref.py` · `lvdm/modules/attention_svd.py`: torch 2.0 미만에서만 나는 오류 문구의 설치 명령 글자를 뺐다(PromBoard 레지스트리 검사가 실행 중 설치로 본다).
   - 고정 버전(torch 2.0 · pytorch_lightning 1.9.3 · transformers 4.25)은 풀었다 — 잠금 파일 `nodes/requirements-*.txt`(torch 2.8.0 · pytorch-lightning 2.6 · open-clip-torch 2.22.0).
   - 코드 밖에서 바꾼 것(`nodes/main.py`): open_clip `pretrained=None`(ViT-H-14 가중치는 `model.ckpt` 안에 있다), 모델 fp16, `torch.load(weights_only=True, mmap=True)`, 장치는 PromBoard 가 정한 `ctx.device`.
 - AnimeInterp

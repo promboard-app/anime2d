@@ -240,7 +240,7 @@ def make_attn(in_channels, attn_type="vanilla", attn_kwargs=None):
     ):
         assert XFORMERS_IS_AVAILABLE, (
             f"We do not support vanilla attention in {torch.__version__} anymore, "
-            f"as it is too expensive. Please install xformers via e.g. 'pip install xformers==0.0.16'"
+            f"as it is too expensive. Please use xformers 0.0.16"  # PromBoard 고침: 설치 명령 글자를 뺐다(레지스트리 검사 — torch 2.8 에서는 닿지 않는 곳)
         )
         # attn_type = "vanilla-xformers"
     logpy.info(f"making attention of type '{attn_type}' with {in_channels} in_channels")

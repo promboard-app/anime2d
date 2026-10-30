@@ -490,7 +490,7 @@ class BasicTransformerBlock(nn.Module):
             if not XFORMERS_IS_AVAILABLE:
                 assert (
                     False
-                ), "Please install xformers via e.g. 'pip install xformers==0.0.16'"
+                ), "Please use xformers 0.0.16"  # PromBoard 고침: 설치 명령 글자를 뺐다(레지스트리 검사 — 이 판에서는 닿지 않는 곳)
             else:
                 logpy.info("Falling back to xformers efficient attention.")
                 attn_mode = "softmax-xformers"

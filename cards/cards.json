@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "cards": [
+    {
+      "kind": "refImage",
+      "id": "example-color-start",
+      "name": "예제 — 컬러 시작 프레임",
+      "file": "cards/color-start.jpg",
+      "role": "두 프레임 → 영상 · 시작 프레임",
+      "tags": ["2D 애니메이션", "예제", "두 프레임 → 영상"]
+    },
+    {
+      "kind": "refImage",
+      "id": "example-color-end",
+      "name": "예제 — 컬러 끝 프레임",
+      "file": "cards/color-end.jpg",
+      "role": "두 프레임 → 영상 · 끝 프레임",
+      "tags": ["2D 애니메이션", "예제", "두 프레임 → 영상"]
+    },
+    {
+      "kind": "refImage",
+      "id": "example-line-start",
+      "name": "예제 — 선화 시작 프레임",
+      "file": "cards/line-start.png",
+      "role": "두 프레임 → 영상(선화) · 시작 프레임",
+      "tags": ["2D 애니메이션", "예제", "선화", "두 프레임 → 영상"]
+    },
+    {
+      "kind": "refImage",
+      "id": "example-line-end",
+      "name": "예제 — 선화 끝 프레임",
+      "file": "cards/line-end.png",
+      "role": "두 프레임 → 영상(선화) · 끝 프레임",
+      "tags": ["2D 애니메이션", "예제", "선화", "두 프레임 → 영상"]
+    },
+    {
+      "kind": "refImage",
+      "id": "example-cont-start",
+      "name": "예제 — 이어진 시작 프레임",
+      "file": "cards/cont-start.jpg",
+      "role": "두 프레임 → 중간 프레임 · 시작 프레임",
+      "tags": ["2D 애니메이션", "예제", "두 프레임 → 중간 프레임"]
+    },
+    {
+      "kind": "refImage",
+      "id": "example-cont-end",
+      "name": "예제 — 이어진 끝 프레임",
+      "file": "cards/cont-end.jpg",
+      "role": "두 프레임 → 중간 프레임 · 끝 프레임",
+      "tags": ["2D 애니메이션", "예제", "두 프레임 → 중간 프레임"]
+    }
+  ]
+}

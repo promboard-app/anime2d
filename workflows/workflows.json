@@ -1,0 +1,716 @@
+{
+  "schema": 1,
+  "workflows": [
+    {
+      "id": "two-frames-to-video-smooth",
+      "name": "컬러 시작 · 끝 → 두 프레임 → 영상 → 프레임 늘리기",
+      "description": "에셋 탭의 '예제 — 컬러 시작 프레임' · '예제 — 컬러 끝 프레임' 카드를 왼쪽 소스 노드 두 개 위에 끌어 놓는다(플러그인 노드 위에 놓으면 선이 이어지지 않는다). 첫 노드만 ▷ 하면 512×320 영상(2초), 둘째까지 ▷ 하면 fps 를 ×2 로 늘린 영상. 선화 카드 두 장을 놓으면 선화 영상이 된다.",
+      "thumbnail": "workflows/two-frames-to-video-smooth.jpg",
+      "nodes": [
+        {
+          "id": "start",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "sourceImage",
+          "images": [],
+          "nodeType": "sourceImage",
+          "pendingUploads": [],
+          "inputWires": [],
+          "outputWires": []
+        },
+        {
+          "id": "end",
+          "position": {
+            "x": 0,
+            "y": 420
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "sourceImage",
+          "images": [],
+          "nodeType": "sourceImage",
+          "pendingUploads": [],
+          "inputWires": [],
+          "outputWires": []
+        },
+        {
+          "id": "tween",
+          "position": {
+            "x": 380,
+            "y": 120
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "promboard.anime2d/fill",
+          "plugin": {
+            "id": "promboard.anime2d",
+            "nodeId": "fill"
+          },
+          "snapshot": {
+            "plugin": "promboard.anime2d",
+            "id": "fill",
+            "label": "2D 애니메이션 · 프레임 사이 채우기",
+            "layout": "auto",
+            "showSources": true,
+            "sources": [
+              "start",
+              "end",
+              "video"
+            ],
+            "views": [
+              "frameStrip"
+            ],
+            "inputs": [
+              {
+                "id": "start",
+                "type": "image",
+                "label": "시작 프레임",
+                "required": false
+              },
+              {
+                "id": "end",
+                "type": "image",
+                "label": "끝 프레임",
+                "required": false
+              },
+              {
+                "id": "video",
+                "type": "video",
+                "label": "늘릴 영상",
+                "required": false
+              },
+              {
+                "id": "prompt",
+                "type": "text",
+                "label": "프롬프트 (영어 · 두 프레임 → 영상만)",
+                "required": false
+              }
+            ],
+            "outputs": [
+              {
+                "id": "video",
+                "type": "video",
+                "label": "영상"
+              },
+              {
+                "id": "frames",
+                "type": "image",
+                "label": "프레임 (여러 장)",
+                "multiple": true
+              }
+            ],
+            "settings": [
+              {
+                "id": "mode",
+                "label": "모드",
+                "help": "자세가 크게 바뀌면 '두 프레임 → 영상'(AI 가 움직임을 새로 그림, 몇 분), 이어진 두 프레임이면 '중간 프레임'(사이만 채움, 빠름). 두 프레임 모드는 시작 · 끝 프레임을, 프레임 늘리기는 늘릴 영상을 잇는다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "inbetween",
+                    "label": "두 프레임 → 중간 프레임 (작은 움직임)",
+                    "vramMinMb": 4096
+                  },
+                  {
+                    "value": "tween",
+                    "label": "두 프레임 → 영상 (큰 움직임)",
+                    "vramMinMb": 10240
+                  },
+                  {
+                    "value": "smooth",
+                    "label": "영상 → 프레임 늘리기",
+                    "vramMinMb": 4096
+                  }
+                ],
+                "default": "inbetween"
+              },
+              {
+                "id": "count",
+                "label": "중간 프레임 수 (중간 프레임)",
+                "help": "시작과 끝 사이에 넣을 프레임 수. 영상은 시작 · 끝을 더해 12fps 로 잇는다(10장이면 12장, 1초).",
+                "type": "integer",
+                "default": 7,
+                "min": 1,
+                "max": 30
+              },
+              {
+                "id": "motion",
+                "label": "움직임 크기 (두 프레임 → 영상)",
+                "help": "크게일수록 두 프레임 사이를 큰 움직임으로 그린다(ToonCrafter frame_stride 5 · 10 · 20). 결과가 거의 안 움직이면 크게, 너무 출렁이면 작게.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "small",
+                    "label": "작게"
+                  },
+                  {
+                    "value": "normal",
+                    "label": "보통"
+                  },
+                  {
+                    "value": "large",
+                    "label": "크게"
+                  }
+                ],
+                "default": "normal"
+              },
+              {
+                "id": "fit",
+                "label": "비율 맞추기 (두 프레임 → 영상)",
+                "help": "가로 16:10 그림이 가장 잘 됩니다. 여백 넣기는 그림을 다 보이게 512×320 에 넣고 결과에서 여백을 잘라 낸다. 가운데 자르기는 512×320 을 꽉 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "pad",
+                    "label": "여백 넣기 (안 잘림)"
+                  },
+                  {
+                    "value": "crop",
+                    "label": "가운데 자르기"
+                  }
+                ],
+                "default": "pad"
+              },
+              {
+                "id": "factor",
+                "label": "배수 (프레임 늘리기)",
+                "help": "fps 를 몇 배로 늘릴지. 길이 · 속도 · 소리는 그대로다(24fps ×2 = 48fps). 영상은 20초까지(그래픽카드 없이 돌면 10초).",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "x2",
+                    "label": "×2"
+                  },
+                  {
+                    "value": "x3",
+                    "label": "×3"
+                  }
+                ],
+                "default": "x2"
+              },
+              {
+                "id": "repeats",
+                "label": "반복 프레임 (프레임 늘리기)",
+                "help": "2D 애니는 한 그림을 2~3프레임씩 보여 줍니다. 건너뛰기는 같은 그림이 이어진 곳을 건너뛰고 다른 그림 사이를 원래 시각에 맞춰 채운다. 그대로 두기는 이웃 프레임끼리만 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "skip",
+                    "label": "건너뛰고 사이 채우기 (매끈하게, 추천)"
+                  },
+                  {
+                    "value": "keep",
+                    "label": "그대로 두기 (원래 끊김 살림)"
+                  }
+                ],
+                "default": "skip"
+              },
+              {
+                "id": "seed",
+                "label": "시드",
+                "help": "-1 이면 매번 다른 결과. 두 프레임 → 영상에만 쓴다(중간 프레임 · 프레임 늘리기는 늘 같은 결과).",
+                "type": "integer",
+                "default": -1,
+                "min": -1,
+                "max": 2147483647
+              }
+            ]
+          },
+          "pluginSettings": {
+            "mode": "tween",
+            "count": 7,
+            "motion": "normal",
+            "fit": "pad",
+            "factor": "x2",
+            "repeats": "skip",
+            "seed": -1
+          },
+          "nodeType": "promboard.anime2d/fill",
+          "inputWires": [],
+          "outputWires": [],
+          "outputPick": {}
+        },
+        {
+          "id": "smooth",
+          "position": {
+            "x": 900,
+            "y": 120
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "promboard.anime2d/fill",
+          "plugin": {
+            "id": "promboard.anime2d",
+            "nodeId": "fill"
+          },
+          "snapshot": {
+            "plugin": "promboard.anime2d",
+            "id": "fill",
+            "label": "2D 애니메이션 · 프레임 사이 채우기",
+            "layout": "auto",
+            "showSources": true,
+            "sources": [
+              "start",
+              "end",
+              "video"
+            ],
+            "views": [
+              "frameStrip"
+            ],
+            "inputs": [
+              {
+                "id": "start",
+                "type": "image",
+                "label": "시작 프레임",
+                "required": false
+              },
+              {
+                "id": "end",
+                "type": "image",
+                "label": "끝 프레임",
+                "required": false
+              },
+              {
+                "id": "video",
+                "type": "video",
+                "label": "늘릴 영상",
+                "required": false
+              },
+              {
+                "id": "prompt",
+                "type": "text",
+                "label": "프롬프트 (영어 · 두 프레임 → 영상만)",
+                "required": false
+              }
+            ],
+            "outputs": [
+              {
+                "id": "video",
+                "type": "video",
+                "label": "영상"
+              },
+              {
+                "id": "frames",
+                "type": "image",
+                "label": "프레임 (여러 장)",
+                "multiple": true
+              }
+            ],
+            "settings": [
+              {
+                "id": "mode",
+                "label": "모드",
+                "help": "자세가 크게 바뀌면 '두 프레임 → 영상'(AI 가 움직임을 새로 그림, 몇 분), 이어진 두 프레임이면 '중간 프레임'(사이만 채움, 빠름). 두 프레임 모드는 시작 · 끝 프레임을, 프레임 늘리기는 늘릴 영상을 잇는다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "inbetween",
+                    "label": "두 프레임 → 중간 프레임 (작은 움직임)",
+                    "vramMinMb": 4096
+                  },
+                  {
+                    "value": "tween",
+                    "label": "두 프레임 → 영상 (큰 움직임)",
+                    "vramMinMb": 10240
+                  },
+                  {
+                    "value": "smooth",
+                    "label": "영상 → 프레임 늘리기",
+                    "vramMinMb": 4096
+                  }
+                ],
+                "default": "inbetween"
+              },
+              {
+                "id": "count",
+                "label": "중간 프레임 수 (중간 프레임)",
+                "help": "시작과 끝 사이에 넣을 프레임 수. 영상은 시작 · 끝을 더해 12fps 로 잇는다(10장이면 12장, 1초).",
+                "type": "integer",
+                "default": 7,
+                "min": 1,
+                "max": 30
+              },
+              {
+                "id": "motion",
+                "label": "움직임 크기 (두 프레임 → 영상)",
+                "help": "크게일수록 두 프레임 사이를 큰 움직임으로 그린다(ToonCrafter frame_stride 5 · 10 · 20). 결과가 거의 안 움직이면 크게, 너무 출렁이면 작게.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "small",
+                    "label": "작게"
+                  },
+                  {
+                    "value": "normal",
+                    "label": "보통"
+                  },
+                  {
+                    "value": "large",
+                    "label": "크게"
+                  }
+                ],
+                "default": "normal"
+              },
+              {
+                "id": "fit",
+                "label": "비율 맞추기 (두 프레임 → 영상)",
+                "help": "가로 16:10 그림이 가장 잘 됩니다. 여백 넣기는 그림을 다 보이게 512×320 에 넣고 결과에서 여백을 잘라 낸다. 가운데 자르기는 512×320 을 꽉 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "pad",
+                    "label": "여백 넣기 (안 잘림)"
+                  },
+                  {
+                    "value": "crop",
+                    "label": "가운데 자르기"
+                  }
+                ],
+                "default": "pad"
+              },
+              {
+                "id": "factor",
+                "label": "배수 (프레임 늘리기)",
+                "help": "fps 를 몇 배로 늘릴지. 길이 · 속도 · 소리는 그대로다(24fps ×2 = 48fps). 영상은 20초까지(그래픽카드 없이 돌면 10초).",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "x2",
+                    "label": "×2"
+                  },
+                  {
+                    "value": "x3",
+                    "label": "×3"
+                  }
+                ],
+                "default": "x2"
+              },
+              {
+                "id": "repeats",
+                "label": "반복 프레임 (프레임 늘리기)",
+                "help": "2D 애니는 한 그림을 2~3프레임씩 보여 줍니다. 건너뛰기는 같은 그림이 이어진 곳을 건너뛰고 다른 그림 사이를 원래 시각에 맞춰 채운다. 그대로 두기는 이웃 프레임끼리만 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "skip",
+                    "label": "건너뛰고 사이 채우기 (매끈하게, 추천)"
+                  },
+                  {
+                    "value": "keep",
+                    "label": "그대로 두기 (원래 끊김 살림)"
+                  }
+                ],
+                "default": "skip"
+              },
+              {
+                "id": "seed",
+                "label": "시드",
+                "help": "-1 이면 매번 다른 결과. 두 프레임 → 영상에만 쓴다(중간 프레임 · 프레임 늘리기는 늘 같은 결과).",
+                "type": "integer",
+                "default": -1,
+                "min": -1,
+                "max": 2147483647
+              }
+            ]
+          },
+          "pluginSettings": {
+            "mode": "smooth",
+            "count": 7,
+            "motion": "normal",
+            "fit": "pad",
+            "factor": "x2",
+            "repeats": "skip",
+            "seed": -1
+          },
+          "nodeType": "promboard.anime2d/fill",
+          "inputWires": [],
+          "outputWires": [],
+          "outputPick": {}
+        }
+      ],
+      "wires": [
+        {
+          "id": "start-to-tween-in-start",
+          "fromNodeId": "start",
+          "fromPortId": "source-image-out",
+          "toNodeId": "tween",
+          "toPortId": "in-start",
+          "dataType": "image"
+        },
+        {
+          "id": "end-to-tween-in-end",
+          "fromNodeId": "end",
+          "fromPortId": "source-image-out",
+          "toNodeId": "tween",
+          "toPortId": "in-end",
+          "dataType": "image"
+        },
+        {
+          "id": "tween-to-smooth-in-video",
+          "fromNodeId": "tween",
+          "fromPortId": "out-video",
+          "toNodeId": "smooth",
+          "toPortId": "in-video",
+          "dataType": "video"
+        }
+      ]
+    },
+    {
+      "id": "two-frames-inbetween",
+      "name": "이어진 시작 · 끝 → 두 프레임 → 중간 프레임",
+      "description": "에셋 탭의 '예제 — 이어진 시작 프레임' · '예제 — 이어진 끝 프레임' 카드를 소스 노드 두 개 위에 끌어 놓고 ▷. 머리카락 · 손만 살짝 움직이는 두 장 사이에 중간 프레임 7장을 그려 9장짜리 12fps 영상으로 잇는다. 그래픽카드 없이도 돈다(1분 안팎).",
+      "thumbnail": "workflows/two-frames-inbetween.jpg",
+      "nodes": [
+        {
+          "id": "start",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "sourceImage",
+          "images": [],
+          "nodeType": "sourceImage",
+          "pendingUploads": [],
+          "inputWires": [],
+          "outputWires": []
+        },
+        {
+          "id": "end",
+          "position": {
+            "x": 0,
+            "y": 420
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "sourceImage",
+          "images": [],
+          "nodeType": "sourceImage",
+          "pendingUploads": [],
+          "inputWires": [],
+          "outputWires": []
+        },
+        {
+          "id": "inbetween",
+          "position": {
+            "x": 380,
+            "y": 120
+          },
+          "selectedTermIds": [],
+          "isStale": false,
+          "type": "promboard.anime2d/fill",
+          "plugin": {
+            "id": "promboard.anime2d",
+            "nodeId": "fill"
+          },
+          "snapshot": {
+            "plugin": "promboard.anime2d",
+            "id": "fill",
+            "label": "2D 애니메이션 · 프레임 사이 채우기",
+            "layout": "auto",
+            "showSources": true,
+            "sources": [
+              "start",
+              "end",
+              "video"
+            ],
+            "views": [
+              "frameStrip"
+            ],
+            "inputs": [
+              {
+                "id": "start",
+                "type": "image",
+                "label": "시작 프레임",
+                "required": false
+              },
+              {
+                "id": "end",
+                "type": "image",
+                "label": "끝 프레임",
+                "required": false
+              },
+              {
+                "id": "video",
+                "type": "video",
+                "label": "늘릴 영상",
+                "required": false
+              },
+              {
+                "id": "prompt",
+                "type": "text",
+                "label": "프롬프트 (영어 · 두 프레임 → 영상만)",
+                "required": false
+              }
+            ],
+            "outputs": [
+              {
+                "id": "video",
+                "type": "video",
+                "label": "영상"
+              },
+              {
+                "id": "frames",
+                "type": "image",
+                "label": "프레임 (여러 장)",
+                "multiple": true
+              }
+            ],
+            "settings": [
+              {
+                "id": "mode",
+                "label": "모드",
+                "help": "자세가 크게 바뀌면 '두 프레임 → 영상'(AI 가 움직임을 새로 그림, 몇 분), 이어진 두 프레임이면 '중간 프레임'(사이만 채움, 빠름). 두 프레임 모드는 시작 · 끝 프레임을, 프레임 늘리기는 늘릴 영상을 잇는다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "inbetween",
+                    "label": "두 프레임 → 중간 프레임 (작은 움직임)",
+                    "vramMinMb": 4096
+                  },
+                  {
+                    "value": "tween",
+                    "label": "두 프레임 → 영상 (큰 움직임)",
+                    "vramMinMb": 10240
+                  },
+                  {
+                    "value": "smooth",
+                    "label": "영상 → 프레임 늘리기",
+                    "vramMinMb": 4096
+                  }
+                ],
+                "default": "inbetween"
+              },
+              {
+                "id": "count",
+                "label": "중간 프레임 수 (중간 프레임)",
+                "help": "시작과 끝 사이에 넣을 프레임 수. 영상은 시작 · 끝을 더해 12fps 로 잇는다(10장이면 12장, 1초).",
+                "type": "integer",
+                "default": 7,
+                "min": 1,
+                "max": 30
+              },
+              {
+                "id": "motion",
+                "label": "움직임 크기 (두 프레임 → 영상)",
+                "help": "크게일수록 두 프레임 사이를 큰 움직임으로 그린다(ToonCrafter frame_stride 5 · 10 · 20). 결과가 거의 안 움직이면 크게, 너무 출렁이면 작게.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "small",
+                    "label": "작게"
+                  },
+                  {
+                    "value": "normal",
+                    "label": "보통"
+                  },
+                  {
+                    "value": "large",
+                    "label": "크게"
+                  }
+                ],
+                "default": "normal"
+              },
+              {
+                "id": "fit",
+                "label": "비율 맞추기 (두 프레임 → 영상)",
+                "help": "가로 16:10 그림이 가장 잘 됩니다. 여백 넣기는 그림을 다 보이게 512×320 에 넣고 결과에서 여백을 잘라 낸다. 가운데 자르기는 512×320 을 꽉 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "pad",
+                    "label": "여백 넣기 (안 잘림)"
+                  },
+                  {
+                    "value": "crop",
+                    "label": "가운데 자르기"
+                  }
+                ],
+                "default": "pad"
+              },
+              {
+                "id": "factor",
+                "label": "배수 (프레임 늘리기)",
+                "help": "fps 를 몇 배로 늘릴지. 길이 · 속도 · 소리는 그대로다(24fps ×2 = 48fps). 영상은 20초까지(그래픽카드 없이 돌면 10초).",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "x2",
+                    "label": "×2"
+                  },
+                  {
+                    "value": "x3",
+                    "label": "×3"
+                  }
+                ],
+                "default": "x2"
+              },
+              {
+                "id": "repeats",
+                "label": "반복 프레임 (프레임 늘리기)",
+                "help": "2D 애니는 한 그림을 2~3프레임씩 보여 줍니다. 건너뛰기는 같은 그림이 이어진 곳을 건너뛰고 다른 그림 사이를 원래 시각에 맞춰 채운다. 그대로 두기는 이웃 프레임끼리만 채운다.",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "skip",
+                    "label": "건너뛰고 사이 채우기 (매끈하게, 추천)"
+                  },
+                  {
+                    "value": "keep",
+                    "label": "그대로 두기 (원래 끊김 살림)"
+                  }
+                ],
+                "default": "skip"
+              },
+              {
+                "id": "seed",
+                "label": "시드",
+                "help": "-1 이면 매번 다른 결과. 두 프레임 → 영상에만 쓴다(중간 프레임 · 프레임 늘리기는 늘 같은 결과).",
+                "type": "integer",
+                "default": -1,
+                "min": -1,
+                "max": 2147483647
+              }
+            ]
+          },
+          "pluginSettings": {
+            "mode": "inbetween",
+            "count": 7,
+            "motion": "normal",
+            "fit": "pad",
+            "factor": "x2",
+            "repeats": "skip",
+            "seed": -1
+          },
+          "nodeType": "promboard.anime2d/fill",
+          "inputWires": [],
+          "outputWires": [],
+          "outputPick": {}
+        }
+      ],
+      "wires": [
+        {
+          "id": "start-to-inbetween-in-start",
+          "fromNodeId": "start",
+          "fromPortId": "source-image-out",
+          "toNodeId": "inbetween",
+          "toPortId": "in-start",
+          "dataType": "image"
+        },
+        {
+          "id": "end-to-inbetween-in-end",
+          "fromNodeId": "end",
+          "fromPortId": "source-image-out",
+          "toNodeId": "inbetween",
+          "toPortId": "in-end",
+          "dataType": "image"
+        }
+      ]
+    }
+  ]
+}

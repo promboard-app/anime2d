@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "id": "promboard.anime2d",
+  "version": "1.0.0",
+  "name": "2D 애니메이션 팩 — 프레임 사이 채우기",
+  "description": "2D 애니메이션 팩은 세 장으로 나뉩니다: 프레임 사이 채우기(이 카드) · 선화 채색 · 키프레임으로 채색 영상. 이 카드는 노드 하나에 모드 셋 — ① 두 프레임 → 중간 프레임(AnimeInterp, 받기 25MB, 그래픽카드 없이도 돈다) ② 두 프레임 → 영상(ToonCrafter, 512×320 16프레임, 받기 10.5GB, NVIDIA 그래픽카드 10GB 이상) ③ 영상 → 프레임 늘리기(fps ×2 · ×3). 고른 모드의 모델만 받는다. 예제 그림 6장 · 워크플로우 2개. 윈도우 · 리눅스 전용. 라이선스: ToonCrafter 코드 · 가중치 Apache-2.0(상업 가능), AnimeInterp 코드 MIT — 가중치는 라이선스 표기가 없어 원 저자 표기와 함께 우리 GitHub 릴리스에 다시 올렸다.",
+  "author": "PromBoard",
+  "license": "Apache-2.0 AND MIT AND BSD-3-Clause",
+  "app": ">=1.0.3",
+  "categories": ["videoGenerate"],
+  "repository": "https://github.com/promboard-app/anime2d",
+  "icon": "icon.png",
+  "contents": ["nodes", "cards", "workflows"],
+  "nodes": [
+    {
+      "id": "fill",
+      "label": "2D 애니메이션 · 프레임 사이 채우기",
+      "description": "두 프레임 → 영상은 512×320, 16장, 약 2초(8fps) — 다른 비율 그림은 그 안에 맞춘 크기. 중간 프레임은 시작 · 끝 프레임 크기(긴 변 960 까지)로 n장과 셋을 이은 12fps 영상. 프레임 늘리기는 길이 · 속도 · 소리를 그대로 두고 fps 만 ×2 · ×3. 모드마다 이을 것은 '모드' 설명에.",
+      "layout": "auto",
+      "showSources": true,
+      "sources": ["start", "end", "video"],
+      "views": ["frameStrip"],
+      "inputs": [
+        { "id": "start", "type": "image", "label": "시작 프레임", "required": false },
+        { "id": "end", "type": "image", "label": "끝 프레임", "required": false },
+        { "id": "video", "type": "video", "label": "늘릴 영상", "required": false },
+        { "id": "prompt", "type": "text", "label": "프롬프트 (영어 · 두 프레임 → 영상만)", "required": false }
+      ],
+      "outputs": [
+        { "id": "video", "type": "video", "label": "영상" },
+        { "id": "frames", "type": "image", "label": "프레임 (여러 장)", "multiple": true }
+      ],
+      "settings": [
+        {
+          "id": "mode",
+          "label": "모드",
+          "help": "자세가 크게 바뀌면 '두 프레임 → 영상'(AI 가 움직임을 새로 그림, 몇 분), 이어진 두 프레임이면 '중간 프레임'(사이만 채움, 빠름). 두 프레임 모드는 시작 · 끝 프레임을, 프레임 늘리기는 늘릴 영상을 잇는다.",
+          "type": "select",
+          "options": [
+            { "value": "inbetween", "label": "두 프레임 → 중간 프레임 (작은 움직임)", "vramMinMb": 4096 },
+            { "value": "tween", "label": "두 프레임 → 영상 (큰 움직임)", "vramMinMb": 10240 },
+            { "value": "smooth", "label": "영상 → 프레임 늘리기", "vramMinMb": 4096 }
+          ],
+          "default": "inbetween"
+        },
+        {
+          "id": "count",
+          "label": "중간 프레임 수 (중간 프레임)",
+          "help": "시작과 끝 사이에 넣을 프레임 수. 영상은 시작 · 끝을 더해 12fps 로 잇는다(10장이면 12장, 1초).",
+          "type": "integer",
+          "default": 7,
+          "min": 1,
+          "max": 30
+        },
+        {
+          "id": "motion",
+          "label": "움직임 크기 (두 프레임 → 영상)",
+          "help": "크게일수록 두 프레임 사이를 큰 움직임으로 그린다(ToonCrafter frame_stride 5 · 10 · 20). 결과가 거의 안 움직이면 크게, 너무 출렁이면 작게.",
+          "type": "select",
+          "options": [
+            { "value": "small", "label": "작게" },
+            { "value": "normal", "label": "보통" },
+            { "value": "large", "label": "크게" }
+          ],
+          "default": "normal"
+        },
+        {
+          "id": "fit",
+          "label": "비율 맞추기 (두 프레임 → 영상)",
+          "help": "가로 16:10 그림이 가장 잘 됩니다. 여백 넣기는 그림을 다 보이게 512×320 에 넣고 결과에서 여백을 잘라 낸다. 가운데 자르기는 512×320 을 꽉 채운다.",
+          "type": "select",
+          "options": [
+            { "value": "pad", "label": "여백 넣기 (안 잘림)" },
+            { "value": "crop", "label": "가운데 자르기" }
+          ],
+          "default": "pad"
+        },
+        {
+          "id": "factor",
+          "label": "배수 (프레임 늘리기)",
+          "help": "fps 를 몇 배로 늘릴지. 길이 · 속도 · 소리는 그대로다(24fps ×2 = 48fps). 영상은 20초까지(그래픽카드 없이 돌면 10초).",
+          "type": "select",
+          "options": [
+            { "value": "x2", "label": "×2" },
+            { "value": "x3", "label": "×3" }
+          ],
+          "default": "x2"
+        },
+        {
+          "id": "repeats",
+          "label": "반복 프레임 (프레임 늘리기)",
+          "help": "2D 애니는 한 그림을 2~3프레임씩 보여 줍니다. 건너뛰기는 같은 그림이 이어진 곳을 건너뛰고 다른 그림 사이를 원래 시각에 맞춰 채운다. 그대로 두기는 이웃 프레임끼리만 채운다.",
+          "type": "select",
+          "options": [
+            { "value": "skip", "label": "건너뛰고 사이 채우기 (매끈하게, 추천)" },
+            { "value": "keep", "label": "그대로 두기 (원래 끊김 살림)" }
+          ],
+          "default": "skip"
+        },
+        {
+          "id": "seed",
+          "label": "시드",
+          "help": "-1 이면 매번 다른 결과. 두 프레임 → 영상에만 쓴다(중간 프레임 · 프레임 늘리기는 늘 같은 결과).",
+          "type": "integer",
+          "default": -1,
+          "min": -1,
+          "max": 2147483647
+        }
+      ]
+    }
+  ],
+  "python": {
+    "version": "3.12",
+    "torch": "host",
+    "lock": {
+      "win": "nodes/requirements-win.txt",
+      "linux": "nodes/requirements-linux.txt"
+    },
+    "entry": "nodes.main"
+  },
+  "gpu": { "vramMinMb": 4096, "cpuAllowed": true },
+  "permissions": {},
+  "requires": {
+    "models": [
+      {
+        "source": "url",
+        "url": "https://github.com/promboard-app/anime2d/releases/download/weights-animeinterp/anime_interp_full.ckpt",
+        "path": "animeinterp/anime_interp_full.ckpt",
+        "bytes": 24884057,
+        "sha256": "0e7efcadf59b4b02e2a7122662bade0be2d8d057302eb772b602aaa01090afd1",
+        "license": "LicenseRef-unspecified",
+        "when": { "node": "fill", "setting": "mode", "values": ["inbetween", "smooth"] }
+      },
+      {
+        "source": "huggingface",
+        "repo": "Doubiiu/ToonCrafter",
+        "revision": "7c56c5a23d9f8a9d99398e2a2491fff4bd6cffaf",
+        "license": "Apache-2.0",
+        "files": [
+          { "path": "model.ckpt", "bytes": 10502492136, "sha256": "e4df5aecd9919af2f41a92912bb6391e03531b269785a7448d87e964462edf53" }
+        ],
+        "when": { "node": "fill", "setting": "mode", "values": ["tween"] }
+      }
+    ]
+  }
+}

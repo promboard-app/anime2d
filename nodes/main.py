@@ -41,10 +41,11 @@ TC_DEFAULT_PROMPT = "an anime scene"  # 공식 예시 글
 MOTION_STRIDE = {"small": 20, "normal": 10, "large": 5}
 FACTORS = {"x2": 2, "x3": 3}
 INBETWEEN_FPS = 12
-# 늘릴 영상 길이 상한(초). 실측 2026-10-31 RTX 4070 SUPER: 1080p(960×540 로 처리) 24fps 20초 — ×2 423초 · ×3 약 744초,
-# '그대로 두기' ×2 약 354초 · ×3 약 610초. CPU(같은 PC)는 512×320 에서 새 프레임 하나 약 1.8초.
-SMOOTH_MAX_SEC = {"cuda": 20, "cpu": 10}
-# PromBoard 실행기 노드 한 번 900초(CPU 는 ×4, 적재 몫 180초는 따로) — 넘을 것 같으면 처음 8장 뒤 멈춘다.
+# 늘릴 영상의 원래 프레임 수 상한(일이 프레임 수에 비례 — 24fps 로 그래픽카드 20초 · CPU 10초). 실측 2026-10-31 RTX 4070 SUPER:
+# 1080p(960×540 로 처리) 24fps 20초 — ×2 423초 · ×3 약 744초, '그대로 두기' ×2 약 354초 · ×3 약 610초.
+# CPU(같은 PC)는 512×320 에서 새 프레임 하나 약 1.8초.
+SMOOTH_MAX_FRAMES = {"cuda": 480, "cpu": 240}
+# PromBoard 실행기 노드 한 번 900초(CPU 는 ×4, 적재 몫 180초는 따로) — 노드를 시작한 때부터 세어 넘을 것 같으면 처음 8장 뒤 멈춘다.
 TIME_BUDGET_SEC = {"cuda": 900, "cpu": 3600}
 
 _CACHE = {"kind": None, "model": None}
@@ -265,15 +266,16 @@ def _animeinterp(ctx):
 
 
 def _to_tensor(arr, device):
-    """(h, w, 3) uint8 → (1, 3, H8, W8) float 0~1. 가로 · 세로를 8의 배수로 가장자리 복제 덧대기(흐름 1/8 · 합성 1/4 크기가 맞게)."""
+    """(h, w, 3) uint8 → (1, 3, H, W) float 0~1. logic.flow_pad 크기(8의 배수, 64 이상)로 가장자리 복제 덧대기
+    (흐름 1/8 · 합성 1/4 크기가 맞고, 64px 보다 작은 그림도 받게 — 결과는 _Interp.at 이 원래 크기로 잘라 낸다)."""
     import torch
     import torch.nn.functional as F
 
     t = torch.tensor(arr).permute(2, 0, 1).float().div(255.0).unsqueeze(0).contiguous().to(device)  # 앞으로 밀기는 view(-1) 를 쓴다
     h, w = arr.shape[:2]
-    ph, pw = (-h) % 8, (-w) % 8
-    if ph or pw:
-        t = F.pad(t, (0, pw, 0, ph), mode="replicate")
+    pw, ph = logic.flow_pad(w, h)
+    if (pw, ph) != (w, h):
+        t = F.pad(t, (0, pw - w, 0, ph - h), mode="replicate")
     return t
 
 
@@ -353,8 +355,9 @@ def _inbetween(ctx, inputs, settings):
 # ── 영상 → 프레임 늘리기 ─────────────────────────────────────────────────
 
 
-def _read_video(ctx, path, limit):
-    """영상 → (RGB 프레임 목록 (h, w, 3) uint8 — AnimeInterp 처리 크기, fps(Fraction), 원본 컨테이너 · 소리 스트림)."""
+def _read_video(ctx, path, max_frames):
+    """영상 → (RGB 프레임 목록 (h, w, 3) uint8 — AnimeInterp 처리 크기, fps(Fraction), 원본 컨테이너 · 소리 스트림).
+    원래 프레임이 max_frames 를 넘으면(0.5초 여유) 한국어 오류."""
     import av
     import numpy as np
     from PIL import Image
@@ -368,14 +371,16 @@ def _read_video(ctx, path, limit):
     if not rate or float(rate) <= 0:
         src.close()
         raise ValueError("'늘릴 영상'의 fps 를 읽지 못했습니다.")
+    fps = float(rate)
     seconds = float(stream.frames / rate) if stream.frames else (float(stream.duration * stream.time_base) if stream.duration else 0.0)
-    problem = logic.length_problem(seconds, limit)
+    problem = logic.length_problem(seconds, fps, max_frames)
     if problem:
         src.close()
         raise ValueError(problem)
     frames, size = [], None
     try:
         for frame in src.decode(stream):
+            ctx.check_cancel()
             arr = frame.to_ndarray(format="rgb24")
             rot = int(round((getattr(frame, "rotation", 0) or 0) / 90.0)) % 4
             if rot:
@@ -385,7 +390,7 @@ def _read_video(ctx, path, limit):
             if (arr.shape[1], arr.shape[0]) != size:
                 arr = np.asarray(Image.fromarray(arr).resize(size, Image.LANCZOS))
             frames.append(arr)
-            problem = logic.length_problem(len(frames) / float(rate), limit)
+            problem = logic.length_problem(len(frames) / fps, fps, max_frames, at_least=True)  # 머리 정보의 길이가 틀린 영상
             if problem:
                 raise ValueError(problem)
     except av.error.FFmpegError as exc:  # 끝부분이 깨진 파일 — 읽은 데까지 쓴다
@@ -403,17 +408,18 @@ def _read_video(ctx, path, limit):
 def _smooth(ctx, inputs, settings):
     import torch
 
+    began = time.monotonic()  # 노드 시간 상한은 영상 읽기 · 반복 찾기 · 모델 적재까지 센다
     factor = FACTORS.get(settings.get("factor", "x2"), 2)
     dev = "cuda" if ctx.device == "cuda" else "cpu"
-    limit, budget = SMOOTH_MAX_SEC[dev], TIME_BUDGET_SEC[dev]
+    max_frames, budget = SMOOTH_MAX_FRAMES[dev], TIME_BUDGET_SEC[dev]
     ctx.progress(0.0, "read")
-    frames, rate, src, astream = _read_video(ctx, ctx.in_path(inputs["video"]), limit)
+    frames, rate, src, astream = _read_video(ctx, ctx.in_path(inputs["video"]), max_frames)
     try:
         n = len(frames)
         if settings.get("repeats", "skip") == "keep":
             keys = list(range(n))
         else:
-            keys = [i for i, _ in logic.dedupe_timeline(frames, logic.DEDUPE_THRESHOLD, float(rate))]
+            keys = [i for i, _ in logic.dedupe_timeline(frames, logic.DEDUPE_THRESHOLD, float(rate), ctx.check_cancel)]
         plan = logic.fill_times(keys, n, factor)
         pairs = logic.pairs_of(plan)
         made = sum(len(ts) for ts in pairs.values())
@@ -422,30 +428,40 @@ def _smooth(ctx, inputs, settings):
         model = _animeinterp(ctx)
         path = ctx.out_path("smooth.mp4")
         writer = _VideoWriter(path, w, h, rate * factor, (src, astream) if astream is not None else None, ctx)
-        started = time.monotonic()
-        current, interp, done = None, None, 0
+        current, interp = None, None
+        done, written, new_sec, write_sec = 0, 0, 0.0, 0.0  # 새 프레임 수 · 쓴 프레임 수와 각각에 든 시간(어림용)
         try:
             for a, b, t in plan:
                 ctx.check_cancel()
+                if t > 0:
+                    t0 = time.monotonic()
+                    if current != (a, b):
+                        interp = None
+                        if dev == "cuda":
+                            torch.cuda.empty_cache()  # 쌍마다 새 흐름 — 캐시가 조각나 불어나지 않게
+                        current, interp = (a, b), _Interp(model, frames[a], frames[b], ctx.device)
+                    out = interp.at(t)
+                    new_sec += time.monotonic() - t0
+                    done += 1
+                else:
+                    out = frames[a]
+                t0 = time.monotonic()
+                writer.write(out)
+                write_sec += time.monotonic() - t0
+                written += 1
                 if t == 0:
-                    writer.write(frames[a])
                     continue
-                if current != (a, b):
-                    interp = None
-                    if dev == "cuda":
-                        torch.cuda.empty_cache()  # 쌍마다 새 흐름 — 캐시가 조각나 불어나지 않게
-                    current, interp = (a, b), _Interp(model, frames[a], frames[b], ctx.device)
-                writer.write(interp.at(t))
-                done += 1
                 ctx.progress(0.05 + 0.9 * done / max(1, made), "work")
                 if done == 8 and made > 16:
-                    guess = (time.monotonic() - started) / done * made
-                    ctx.log(f"first {done} frames in {time.monotonic() - started:.1f}s, whole video about {guess:.0f}s")
-                    if guess > budget:
-                        raise ValueError(
-                            f"이 영상은 이 PC 에서 약 {guess / 60:.0f}분 걸릴 것 같아 멈췄습니다(한 번에 약 {budget // 60}분까지 돕니다). "
-                            "영상을 짧게 자르거나 배수를 '×2'로 낮춰 주세요."
-                        )
+                    spent = time.monotonic() - began
+                    guess = logic.smooth_estimate(spent, done, new_sec, made, written, write_sec, len(plan))
+                    ctx.log(
+                        f"first {done} new frames {new_sec:.1f}s, {written} written {write_sec:.1f}s, "
+                        f"{spent:.1f}s since start, whole about {guess:.0f}s (budget {budget}s)"
+                    )
+                    problem = logic.time_problem(guess, budget, factor)
+                    if problem:
+                        raise ValueError(problem)
         finally:
             writer.close()
     finally:
@@ -551,9 +567,10 @@ def _tween(ctx, inputs, settings):
     b, _ = logic.fit_frame(end, fit, TC_SIZE)
     prompt = (inputs.get("prompt") or "").strip() or TC_DEFAULT_PROMPT
     stride = MOTION_STRIDE.get(settings.get("motion", "normal"), 10)
+    model = _tooncrafter(ctx)
+    # 모델 틀을 처음 만들 때 난수를 쓴다(open_clip 등) — 시드는 그 뒤에 정해야 첫 실행도 같은 시드에 같은 결과가 난다.
     seed = _seed(settings.get("seed", -1))
     ctx.log(f"tween {start.size[0]}x{start.size[1]} fit {fit} box {box}, frame_stride {stride}, seed {seed}")
-    model = _tooncrafter(ctx)
     from lvdm.models.samplers.ddim import DDIMSampler
 
     ctx.progress(0.02, "encode")

@@ -82,11 +82,11 @@ Left is the original (8 fps), right is ×3 (24 fps). Length and speed are the sa
 
 | Input | Download | GPU memory | Time |
 |---|---|---|---|
-| a video (up to 20 s; up to 10 s without a GPU) | 25 MB (same model as in-between) | about 4 GB | a 1080p 24 fps 20 s clip takes about 7 min at ×2, about 12 min at ×3 |
+| a video (up to 480 original frames: 20 s at 24 fps, 16 s at 30 fps; 240 frames without a GPU) | 25 MB (same model as in-between) | about 4 GB | a 1080p 24 fps 20 s clip takes about 7 min at ×2, about 12 min at ×3 |
 
 - Length, speed and sound stay the same; only the fps becomes ×2 or ×3.
 - 2D anime shows one drawing for 2–3 frames. With "반복 프레임 (repeats)" set to **skip repeats and fill between** (default), held drawings are skipped and the frames between different drawings are filled at their original times, so the motion becomes evenly smooth. **Keep** only fills between neighboring frames and keeps the original choppy feel.
-- After the first 8 frames the node estimates the total time; if it would exceed the run limit (15 min with a GPU, 60 min without), it stops right away and tells you.
+- After the first 8 frames the node estimates the total time (counting from the start of the node, including reading the video and loading the model); if it would exceed 90% of the run limit (15 min with a GPU, 60 min without), it stops right away and tells you.
 
 ## Settings
 

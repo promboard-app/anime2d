@@ -63,6 +63,16 @@ def test_messages_fit_the_app_error_limit():
     cases = [("tween", {}), ("inbetween", {"end": 1}), ("smooth", {"start": 1, "end": 1}), ("smooth", {"video": 1, "start": 1})]
     for mode, inputs in cases:
         assert len(logic.check_inputs(mode, inputs)) <= 300
+    others = [
+        logic.device_problem("tween", "cpu"),
+        logic.length_problem(99.9, 29.97, 480),
+        logic.length_problem(99.9, 29.97, 480, at_least=True),
+        logic.time_problem(99999.0, 3600, 3),
+        logic.friendly_error(RuntimeError("out of memory"), "smooth", 0),
+        logic.friendly_error(RuntimeError("out of memory"), "tween", 12282),
+    ]
+    for msg in others:
+        assert len(msg) <= 300
 
 
 # ── 크기 맞추기 ──────────────────────────────────────────────────────────
@@ -111,6 +121,17 @@ def test_animeinterp_size_caps_long_side_and_is_even(w, h, expect):
     assert logic.animeinterp_size(w, h) == expect
 
 
+@pytest.mark.parametrize(
+    "w,h,expect",
+    [(512, 320, (512, 320)), (960, 540, (960, 544)), (960, 40, (960, 64)), (98, 50, (104, 64)), (2, 2, (64, 64)), (64, 64, (64, 64)), (56, 960, (64, 960))],
+)
+def test_flow_pad_is_multiple_of_8_and_at_least_64(w, h, expect):
+    """64px 보다 작으면 RAFT 상관 피라미드(1/8 크기에서 4단)가 avg_pool 영어 오류를 낸다 — 덧대서 받는다."""
+    pw, ph = logic.flow_pad(w, h)
+    assert (pw, ph) == expect
+    assert pw % 8 == 0 and ph % 8 == 0 and min(pw, ph) // 8 >= 2 ** 3
+
+
 # ── 반복 프레임 · 채울 시각 ──────────────────────────────────────────────
 
 
@@ -144,6 +165,26 @@ def test_small_change_is_a_new_drawing():
 
 def test_still_video_has_one_key():
     assert [i for i, _ in logic.dedupe_timeline(_frames("AAAAAA"), logic.DEDUPE_THRESHOLD, 24.0)] == [0]
+
+
+def test_dedupe_checks_cancel_every_frame():
+    calls = []
+    logic.dedupe_timeline(_frames("AABBB"), logic.DEDUPE_THRESHOLD, 24.0, lambda: calls.append(1))
+    assert len(calls) == 5
+
+    class Cancelled(Exception):
+        pass
+
+    seen = []
+
+    def cancel_at_third():
+        seen.append(1)
+        if len(seen) == 3:
+            raise Cancelled()
+
+    with pytest.raises(Cancelled):
+        logic.dedupe_timeline(_frames("ABCDEF"), logic.DEDUPE_THRESHOLD, 24.0, cancel_at_third)
+    assert len(seen) == 3
 
 
 def test_fill_times_keeps_length_for_still_and_short_videos():
@@ -184,9 +225,60 @@ def test_pairs_to_compute_are_unique_and_skip_copies():
 # ── 길이 · 쉬운 오류 문구 ───────────────────────────────────────────────
 
 
-def test_length_message():
-    assert logic.length_problem(10.0, 60) is None
-    assert logic.length_problem(75.4, 60) == "60초까지 받습니다. 지금 영상은 76초입니다."
+def test_length_limit_counts_frames_not_seconds():
+    # 24fps 로 480프레임 = 20초. fps 가 높으면 받는 초가 짧고, 낮으면 길다.
+    assert logic.length_problem(20.0, 24.0, 480) is None
+    assert logic.length_problem(60.0, 8.0, 480) is None
+    assert logic.length_problem(20.0, 30.0, 480) == (
+        "이 영상(30fps)은 16초까지 받습니다(한 번에 원래 프레임 480장까지). 지금 영상은 20초입니다. 영상을 짧게 잘라 주세요."
+    )
+
+
+def test_length_limit_takes_the_boundary_video():
+    """23.976fps 20초(480프레임 = 20.02초)를 21초로 보고 거절하지 않는다 — 0.5초 여유, 반올림해 보인다."""
+    ntsc = 24000 / 1001
+    assert logic.length_problem(480 / ntsc, ntsc, 480) is None
+    assert logic.length_problem(481 / 24.0, 24.0, 480) is None  # 끝에 한 장 더 붙은 24fps 20초
+    assert logic.length_problem(20.4, 24.0, 480) is None
+    msg = logic.length_problem(20.62, ntsc, 480)
+    assert msg.startswith("이 영상(23.98fps)은 20초까지 받습니다(")
+    assert "지금 영상은 20.6초입니다." in msg
+
+
+def test_length_limit_while_reading_says_longer_than():
+    msg = logic.length_problem(10.6, 24.0, 240, at_least=True)
+    assert "지금 영상은 10초보다 깁니다." in msg
+
+
+def test_time_estimate_counts_reading_loading_and_encoding():
+    # 30fps 20초 ×3 '그대로 두기': 원래 600장 → 결과 1800장 중 새 프레임 1200장.
+    # 만들기만 세면 8장 6.4초 → 1200장 960초(옛 어림). 읽기 · 적재 120초와 쓰기 몫까지 세면 그보다 길다.
+    guess = logic.smooth_estimate(spent=130.0, new_done=8, new_sec=6.4, new_total=1200, written=12, write_sec=0.6, out_total=1800)
+    assert guess == pytest.approx(130 + 1192 * 0.8 + (1800 - 12 + logic.ENCODE_TAIL_FRAMES) * 0.05)
+    assert logic.time_problem(guess, 900, 3) is not None
+
+
+def test_time_estimate_stops_when_only_the_whole_run_is_over():
+    """만들기만 보면 상한 안(780초)이어도 읽기 · 적재 · 쓰기를 더해 90%(810초)를 넘으면 멈춘다."""
+    making_only = 6.5 / 8 * 960
+    assert making_only < 900 * logic.TIME_MARGIN
+    guess = logic.smooth_estimate(spent=60.0, new_done=8, new_sec=6.5, new_total=960, written=12, write_sec=0.48, out_total=1440)
+    assert guess > 900 * logic.TIME_MARGIN
+    assert logic.time_problem(guess, 900, 3) is not None
+    # 짧은 영상은 그대로 돈다
+    small = logic.smooth_estimate(spent=20.0, new_done=8, new_sec=3.0, new_total=96, written=12, write_sec=0.3, out_total=144)
+    assert logic.time_problem(small, 900, 2) is None
+
+
+def test_time_message_tip_follows_factor():
+    x3 = logic.time_problem(1000.0, 900, 3)
+    assert x3 == (
+        "이 영상은 이 PC 에서 약 17분 걸릴 것 같아 멈췄습니다. 노드 한 번은 15분까지라 끝내기 전에 끊길 수 있습니다. "
+        "영상을 짧게 자르거나 배수를 '×2'로 낮춰 주세요."
+    )
+    x2 = logic.time_problem(1000.0, 900, 2)
+    assert x2.endswith("영상을 짧게 잘라 주세요.") and "×2" not in x2
+    assert logic.time_problem(810.0, 900, 3) is None  # 딱 90% 는 돈다
 
 
 def test_out_of_memory_message_is_plain_korean():
@@ -204,6 +296,17 @@ def test_out_of_memory_by_type_name_and_cpu_only():
 
     assert "그래픽카드 메모리가 모자랍니다" in logic.friendly_error(OutOfMemoryError("x"), "smooth", 8192)
     assert logic.friendly_error(ValueError("다른 오류"), "tween", 12282) is None
+
+
+@pytest.mark.parametrize("mode", ["smooth", "inbetween"])
+def test_out_of_memory_in_animeinterp_modes_points_to_cpu_not_another_mode(mode):
+    """두 프레임씩 차례로 처리해 영상 길이 · 배수와 상관없이 메모리가 같다 — 다른 모드나 길이 줄이기를 권하지 않는다."""
+    msg = logic.friendly_error(RuntimeError("CUDA out of memory."), mode, 8192)
+    assert msg == (
+        "그래픽카드 메모리가 모자랍니다(이 모드 약 4 GB 필요, 이 PC 8 GB). 그래픽카드를 쓰는 다른 프로그램을 닫고 다시 하거나, "
+        "'로컬 AI 모델' 설정의 '그래픽카드 대신 CPU 만 쓰기'를 켜고 다시 하세요(느립니다)."
+    )
+    assert "중간 프레임'을" not in msg and "배수" not in msg
 
 
 def test_cpu_only_message_for_tween():

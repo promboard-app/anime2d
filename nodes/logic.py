@@ -19,6 +19,8 @@ EXAMPLE_CARDS = {
 }
 # 모드마다 필요한 그래픽카드 메모리(MB). manifest 모드 선택지 vramMinMb 와 같게 둔다(실측 2026-10-31).
 MODE_VRAM_MB = {"inbetween": 4096, "tween": 10240, "smooth": 4096}
+# 앱 설정 이름(PromBoard '로컬 AI 모델' 창 · locales/ko/localai.json behavior.forceCpu). 플러그인 노드도 이 설정을 따른다.
+CPU_ONLY_SETTING = "'로컬 AI 모델' 설정의 '그래픽카드 대신 CPU 만 쓰기'"
 
 
 def _names(keys):
@@ -59,28 +61,85 @@ def device_problem(mode, device):
     """그래픽카드가 꼭 필요한 모드인데 CPU 로 돌게 됐으면 그 안내."""
     if mode == "tween" and device != "cuda":
         return (
-            "'두 프레임 → 영상'은 NVIDIA 그래픽카드가 있어야 합니다. 앱 설정의 'CPU 만 쓰기'가 켜져 있으면 끄고, "
+            f"'두 프레임 → 영상'은 NVIDIA 그래픽카드가 있어야 합니다. {CPU_ONLY_SETTING}가 켜져 있으면 끄고, "
             "그래픽카드가 없는 PC 에서는 '두 프레임 → 중간 프레임'을 쓰세요."
         )
     return None
 
 
-def length_problem(seconds, limit):
-    """영상 길이 초과 안내. 받으면 None."""
-    if seconds <= limit:
+# 경계에 걸친 영상을 받는 여유(초) — 23.976fps 20초는 480프레임 = 20.02초다.
+LENGTH_SLACK_SEC = 0.5
+
+
+def _num(x, digits=1):
+    """소수 digits 자리까지, 끝의 0 은 뺀다 — 20.0 → '20', 20.62 → '20.6', 23.976 (2자리) → '23.98'."""
+    return f"{x:.{digits}f}".rstrip("0").rstrip(".")
+
+
+def length_problem(seconds, fps, max_frames, at_least=False):
+    """영상 길이 초과 안내. 받으면 None.
+
+    상한은 원래 프레임 수(max_frames)다 — 일이 프레임 수에 비례하므로 fps 가 높으면 받는 초가 그만큼 짧다(초로 바꿔 보인다).
+    at_least: 머리 정보에 길이가 없어 읽다가 넘은 것(정확한 길이를 모른다).
+    """
+    limit = max_frames / fps
+    if seconds <= limit + LENGTH_SLACK_SEC:
         return None
-    return f"{limit}초까지 받습니다. 지금 영상은 {math.ceil(seconds)}초입니다."
+    now = f"{_num(limit)}초보다 깁니다" if at_least else f"{_num(seconds)}초입니다"
+    return (
+        f"이 영상({_num(fps, 2)}fps)은 {_num(limit)}초까지 받습니다(한 번에 원래 프레임 {max_frames}장까지). "
+        f"지금 영상은 {now}. 영상을 짧게 잘라 주세요."
+    )
+
+
+# ── 프레임 늘리기 시간 어림 ──────────────────────────────────────────────
+
+
+# 노드 한 번 상한의 90% 를 넘을 것 같으면 멈춘다(끝내기 직전에 끊기지 않게).
+TIME_MARGIN = 0.9
+# 인코더(libx264 preset medium)가 끝날 때 한꺼번에 내보내는 프레임 몫 — 앞을 미리 보느라 쌓아 둔다.
+ENCODE_TAIL_FRAMES = 60
+
+
+def smooth_estimate(spent, new_done, new_sec, new_total, written, write_sec, out_total):
+    """프레임 늘리기 전체 시간 어림(초).
+
+    지금까지 쓴 시간(영상 읽기 · 반복 찾기 · 모델 적재 포함) + 남은 새 프레임 × 한 장 만들기 시간
+    + (남은 쓰기 + 인코더 마무리 몫) × 한 장 쓰기(인코딩) 시간.
+    new_sec · write_sec 는 지금까지 만들기 · 쓰기에 든 시간의 합이다.
+    """
+    per_new = new_sec / max(1, new_done)
+    per_write = write_sec / max(1, written)
+    return spent + max(0, new_total - new_done) * per_new + (max(0, out_total - written) + ENCODE_TAIL_FRAMES) * per_write
+
+
+def time_problem(guess, budget, factor):
+    """어림 시간이 상한의 90% 를 넘으면 그 안내. 아니면 None."""
+    if guess <= budget * TIME_MARGIN:
+        return None
+    tip = "영상을 짧게 자르거나 배수를 '×2'로 낮춰 주세요." if factor > 2 else "영상을 짧게 잘라 주세요."
+    return (
+        f"이 영상은 이 PC 에서 약 {math.ceil(guess / 60)}분 걸릴 것 같아 멈췄습니다. "
+        f"노드 한 번은 {budget // 60}분까지라 끝내기 전에 끊길 수 있습니다. {tip}"
+    )
 
 
 def friendly_error(exc, mode, vram_mb):
-    """그래픽카드 메모리 부족을 쉬운 말로. 다른 예외는 None(원래 예외를 그대로 둔다)."""
+    """그래픽카드 메모리 부족을 쉬운 말로. 다른 예외는 None(원래 예외를 그대로 둔다).
+
+    AnimeInterp 모드(중간 프레임 · 프레임 늘리기)는 두 프레임씩 차례로 처리해 영상 길이 · 배수와 상관없이 메모리가 같다 —
+    그래픽카드를 비우거나 CPU 로 돌리는 것만 듣는다.
+    """
     text = str(exc)
     oom = type(exc).__name__ == "OutOfMemoryError" or "out of memory" in text.lower()
     if not oom:
         return None
     need = round(MODE_VRAM_MB[mode] / 1024)
     have = f"이 PC {round(vram_mb / 1024)} GB" if vram_mb else "이 PC 는 그래픽카드 메모리를 알 수 없음"
-    tail = "다른 프로그램을 닫고 다시 하세요." if mode == "inbetween" else "다른 프로그램을 닫고 다시 하거나 '두 프레임 → 중간 프레임'을 쓰세요."
+    if mode == "tween":
+        tail = "다른 프로그램을 닫고 다시 하거나 '두 프레임 → 중간 프레임'을 쓰세요."
+    else:
+        tail = f"그래픽카드를 쓰는 다른 프로그램을 닫고 다시 하거나, {CPU_ONLY_SETTING}를 켜고 다시 하세요(느립니다)."
     return f"그래픽카드 메모리가 모자랍니다(이 모드 약 {need} GB 필요, {have}). {tail}"
 
 
@@ -137,6 +196,19 @@ def animeinterp_size(w, h, max_side=960):
     return max(2, int(w * scale) // 2 * 2), max(2, int(h * scale) // 2 * 2)
 
 
+# AnimeInterp 흐름(RAFT 상관 피라미드)은 1/8 크기에서 4단을 반씩 줄인다 — 가로나 세로가 64px 보다 작으면 avg_pool 이 영어 오류를 낸다.
+FLOW_MIN_SIDE = 64
+
+
+def flow_pad(w, h):
+    """흐름 · 합성에 넣을 크기 (가로, 세로) — 8의 배수로 올리고 64 보다 작으면 64. 가장자리를 복제해 덧대고 결과는 원래 크기로 잘라 낸다."""
+
+    def up(v):
+        return max(FLOW_MIN_SIDE, -(-v // 8) * 8)
+
+    return up(w), up(h)
+
+
 # ── 반복 프레임 · 채울 시각 ──────────────────────────────────────────────
 
 
@@ -160,14 +232,17 @@ def _small_gray(frame):
     return np.asarray(img.convert("L"), dtype=np.int16)
 
 
-def dedupe_timeline(frames, threshold, fps):
+def dedupe_timeline(frames, threshold, fps, check=None):
     """반복된 프레임(한 그림을 2~3프레임씩 보여 주는 것)을 건너뛴 그림 목록 → [(프레임 번호, 시각 초)].
 
     바로 앞 그림과 견줘 밝기가 크게 바뀐 점의 비율이 threshold 이하면 같은 그림으로 본다. 첫 프레임은 늘 든다.
+    check: 프레임마다 부른다(노드의 ctx.check_cancel — 취소를 바로 받게).
     """
     keys = []
     last = None
     for i, frame in enumerate(frames):
+        if check is not None:
+            check()
         g = _small_gray(frame)
         if last is None or float((abs(g - last) > _CHANGED_LEVEL).mean()) > threshold:
             keys.append((i, i / fps))
